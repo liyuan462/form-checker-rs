@@ -6,10 +6,9 @@ use form_checker::{Validator, Checker, FieldType, Rule, IntoMessage, CheckerOpti
 #[test]
 fn check_str() {
     let mut validator = Validator::new();
-    validator
-        .add_checker(Checker::new("username", FieldType::Str)
-                     << Rule::Max(5)
-                     << Rule::Min(2));
+    validator.check(Checker::new("username", FieldType::Str)
+                    .meet(Rule::Max(5))
+                    .meet(Rule::Min(2)));
 
     ////////////////////////////////////////////////
     validator.reset();
@@ -44,8 +43,8 @@ fn check_str() {
 fn check_str_format() {
     let mut validator = Validator::new();
     validator
-        .add_checker(Checker::new("username", FieldType::Str)
-                     << Rule::Format(r"l\dy"));
+        .check(Checker::new("username", FieldType::Str)
+                     .meet(Rule::Format(r"l\dy")));
 
     let mut params = HashMap::new();
     params.insert("username".to_string(), vec!["hellokitty".to_string()]);
@@ -93,8 +92,8 @@ fn other_message_lang() {
 
     let mut validator = Validator::with_message(MyMessage);
     validator
-        .add_checker(Checker::new("username", FieldType::Str)
-                     << Rule::Format(r"l\dy"));
+        .check(Checker::new("username", FieldType::Str)
+                     .meet(Rule::Format(r"l\dy")));
 
     let mut params = HashMap::new();
     params.insert("username".to_string(), vec!["hellokitty".to_string()]);
@@ -107,10 +106,10 @@ fn other_message_lang() {
 fn check_optional() {
     let mut validator = Validator::new();
     validator
-        .add_checker(Checker::new("username", FieldType::Str)
-                     << CheckerOption::Optional(true)
-                     << Rule::Max(5)
-                     << Rule::Min(2));
+        .check(Checker::new("username", FieldType::Str)
+                     .set(CheckerOption::Optional(true))
+                     .meet(Rule::Max(5))
+                     .meet(Rule::Min(2)));
 
     ////////////////////////////////////////////////
     validator.reset();
@@ -134,9 +133,9 @@ fn check_optional() {
 fn check_int() {
     let mut validator = Validator::new();
     validator
-        .add_checker(Checker::new("age", FieldType::Int)
-                     << Rule::Max(5)
-                     << Rule::Min(2));
+        .check(Checker::new("age", FieldType::Int)
+                     .meet(Rule::Max(5))
+                     .meet(Rule::Min(2)));
 
     ////////////////////////////////////////////////
     validator.reset();
@@ -178,8 +177,8 @@ fn check_int() {
 
     let mut validator = Validator::new();
     validator
-        .add_checker(Checker::new("age", FieldType::Int)
-                     << Rule::Format(r"\d{4}"));
+        .check(Checker::new("age", FieldType::Int)
+                     .meet(Rule::Format(r"\d{4}")));
 
     let mut params = HashMap::new();
     params.insert("age".to_string(), vec!["3456".to_string()]);
@@ -199,6 +198,30 @@ fn check_int() {
 
 #[test]
 fn check_lambda() {
-    struct Lambda(Box<Fn(FieldValue) -> bool>);
-    let l = Lambda(Box::new(|v| true));
+    let mut validator = Validator::new();
+    validator.check(Checker::new("username", FieldType::Str)
+                    .meet(Rule::Lambda(Box::new(|v| true))));
+
+    let mut params = HashMap::new();
+    params.insert("username".to_string(), vec!["bob".to_string()]);
+    validator.validate(&params);
+    assert_eq!(validator.get_required("username").as_str().unwrap(), "bob".to_string());
+
+    let mut validator = Validator::new();
+    validator.check(Checker::new("username", FieldType::Str)
+                    .meet(Rule::Lambda(Box::new(|v| v.as_str().unwrap().len() == 3))));
+
+    let mut params = HashMap::new();
+    params.insert("username".to_string(), vec!["bob".to_string()]);
+    validator.validate(&params);
+    assert_eq!(validator.get_required("username").as_str().unwrap(), "bob".to_string());
+
+    validator.reset();
+    let mut params = HashMap::new();
+
+    params.insert("username".to_string(), vec!["b".to_string()]);
+    validator.validate(&params);
+    assert_eq!(validator.invalid_messages.len(), 1);
+    assert_eq!(validator.get_error("username"), "username格式不正确");
+
 }

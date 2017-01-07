@@ -1,6 +1,5 @@
 extern crate regex;
 
-use std::ops::Shl;
 use std::collections::HashMap;
 use regex::Regex;
 
@@ -27,7 +26,7 @@ impl<T: IntoMessage> Validator<T> {
         }
     }
 
-    pub fn add_checker(&mut self, checker: Checker) -> &mut Validator<T> {
+    pub fn check(&mut self, checker: Checker) -> &mut Validator<T> {
         self.checkers.push(checker);
         self
     }
@@ -125,17 +124,11 @@ impl Message {
     }
 }
 
-pub struct Options {
-    optional: bool,
-    multiple: bool,
-}
-
 pub enum CheckerOption {
     Optional(bool),
     Multiple(bool),
 }
 
-#[derive(Clone)]
 pub struct Checker {
     field_name: String,
     field_type: FieldType,
@@ -228,46 +221,32 @@ impl Checker {
         Ok(field_value)
     }
 
-}
-
-impl Shl<Rule> for Checker {
-
-    type Output = Checker;
-
-    fn shl(self, rule: Rule) -> Checker {
-        let mut checker = self.clone();
-        checker.rules.push(rule);
-        checker
+    pub fn meet(mut self, rule: Rule) -> Checker {
+        self.rules.push(rule);
+        self
     }
-}
 
-impl Shl<CheckerOption> for Checker {
-
-    type Output = Checker;
-
-    fn shl(self, option: CheckerOption) -> Checker {
-        let mut checker = self.clone();
+    pub fn set(mut self, option: CheckerOption) -> Checker {
         match option {
             CheckerOption::Optional(optional) => {
-                checker.optional = optional;
+                self.optional = optional;
             },
             CheckerOption::Multiple(multiple) => {
-                checker.multiple = multiple;
+                self.multiple = multiple;
             }
         }
-        checker
+        self
     }
+
 }
 
-#[derive(Clone)]
 pub enum Rule {
     Max(i64),
     Min(i64),
     Format(&'static str),
-    //Lambda(Box<Fn(FieldValue) -> bool>)
+    Lambda(Box<Fn(FieldValue) -> bool>)
 }
 
-#[derive(Clone)]
 pub enum FieldType {
     Str,
     Int,
@@ -339,6 +318,18 @@ impl FieldValue {
                                 }
                             })
                         }
+                    },
+                    Rule::Lambda(ref f) => {
+                        if !f(FieldValue::StrValue(s.clone())) {
+                            return Err(Message {
+                                key: MessageKey::Format,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v
+                                }
+                            })
+                        }
                     }
                 }
             }
@@ -373,6 +364,18 @@ impl FieldValue {
                     Rule::Format(format) => {
                         let re = Regex::new(format).unwrap();
                         if !re.is_match(&i.to_string()) {
+                            return Err(Message {
+                                key: MessageKey::Format,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v
+                                }
+                            })
+                        }
+                    },
+                    Rule::Lambda(ref f) => {
+                        if !f(FieldValue::IntValue(i)) {
                             return Err(Message {
                                 key: MessageKey::Format,
                                 values: {

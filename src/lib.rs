@@ -134,6 +134,7 @@ pub enum CheckerOption {
 
 pub struct Checker {
     field_name: String,
+    field_title: String,
     field_type: FieldType,
     rules: Vec<Rule>,
     optional: bool,
@@ -141,9 +142,10 @@ pub struct Checker {
 }
 
 impl Checker {
-    pub fn new(field_name: &str, field_type: FieldType) -> Checker {
+    pub fn new(field_name: &str, field_title: &str, field_type: FieldType) -> Checker {
         Checker {
             field_name: field_name.to_string(),
+            field_title: field_title.to_string(),
             field_type: field_type,
             rules: Vec::new(),
             optional: false,
@@ -160,7 +162,7 @@ impl Checker {
                     key: MessageKey::Blank,
                     values: {
                         let mut v = HashMap::new();
-                        v.insert("name".to_string(), self.field_name.clone());
+                        v.insert("name".to_string(), self.field_title.clone());
                         v
                     }});
             }
@@ -186,7 +188,7 @@ impl Checker {
                         key: MessageKey::Blank,
                         values: {
                             let mut v = HashMap::new();
-                            v.insert("name".to_string(), self.field_name.clone());
+                            v.insert("name".to_string(), self.field_title.clone());
                             v
                         }});
                 }
@@ -210,7 +212,7 @@ impl Checker {
                 key: MessageKey::Format,
                 values: {
                     let mut v = HashMap::new();
-                    v.insert("name".to_string(), self.field_name.clone());
+                    v.insert("name".to_string(), self.field_title.clone());
                     v
                 }
             })
@@ -289,7 +291,7 @@ impl FieldValue {
                                 key: MessageKey::MaxLen,
                                 values: {
                                     let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("name".to_string(), checker.field_title.clone());
                                     v.insert("value".to_string(), max.to_string());
                                     v
                                 }
@@ -302,7 +304,7 @@ impl FieldValue {
                                 key: MessageKey::MinLen,
                                 values: {
                                     let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("name".to_string(), checker.field_title.clone());
                                     v.insert("value".to_string(), min.to_string());
                                     v
                                 }
@@ -316,7 +318,7 @@ impl FieldValue {
                                 key: MessageKey::Format,
                                 values: {
                                     let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("name".to_string(), checker.field_title.clone());
                                     v
                                 }
                             })
@@ -330,7 +332,7 @@ impl FieldValue {
                                         key: MessageKey::Custom,
                                         values: {
                                             let mut v = HashMap::new();
-                                            v.insert("value".to_string(), handler(&checker.field_name, &s));
+                                            v.insert("value".to_string(), handler(&checker.field_title, &s));
                                             v
                                         }
                                     })
@@ -340,7 +342,7 @@ impl FieldValue {
                                         key: MessageKey::Format,
                                         values: {
                                             let mut v = HashMap::new();
-                                            v.insert("name".to_string(), checker.field_name.clone());
+                                            v.insert("name".to_string(), checker.field_title.clone());
                                             v
                                         }
                                     })
@@ -358,7 +360,7 @@ impl FieldValue {
                                 key: MessageKey::Max,
                                 values: {
                                     let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("name".to_string(), checker.field_title.clone());
                                     v.insert("value".to_string(), max.to_string());
                                     v
                                 }
@@ -371,7 +373,7 @@ impl FieldValue {
                                 key: MessageKey::Min,
                                 values: {
                                     let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("name".to_string(), checker.field_title.clone());
                                     v.insert("value".to_string(), min.to_string());
                                     v
                                 }
@@ -385,7 +387,7 @@ impl FieldValue {
                                 key: MessageKey::Format,
                                 values: {
                                     let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("name".to_string(), checker.field_title.clone());
                                     v
                                 }
                             })
@@ -399,7 +401,7 @@ impl FieldValue {
                                         key: MessageKey::Custom,
                                         values: {
                                             let mut v = HashMap::new();
-                                            v.insert("value".to_string(), handler(&checker.field_name, &i.to_string()));
+                                            v.insert("value".to_string(), handler(&checker.field_title, &i.to_string()));
                                             v
                                         }
                                     })
@@ -409,7 +411,7 @@ impl FieldValue {
                                         key: MessageKey::Format,
                                         values: {
                                             let mut v = HashMap::new();
-                                            v.insert("name".to_string(), checker.field_name.clone());
+                                            v.insert("name".to_string(), checker.field_title.clone());
                                             v
                                         }
                                     })

@@ -76,6 +76,7 @@ enum MessageKey {
     MinLen,
     Blank,
     Format,
+    Custom,
 }
 
 pub trait IntoMessage {
@@ -98,6 +99,7 @@ pub trait IntoMessage {
     fn blank(&self, name: &str) -> String {
         format!("{name}不能为空", name=name)
     }
+
     fn format(&self, name: &str) -> String {
         format!("{name}格式不正确", name=name)
     }
@@ -120,6 +122,7 @@ impl Message {
             MessageKey::MinLen => m.min_len(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
             MessageKey::Blank => m.blank(self.values.get("name").unwrap()),
             MessageKey::Format => m.format(self.values.get("name").unwrap()),
+            MessageKey::Custom => self.values.get("value").unwrap().clone(),
         }
     }
 }
@@ -244,7 +247,7 @@ pub enum Rule {
     Max(i64),
     Min(i64),
     Format(&'static str),
-    Lambda(Box<Fn(FieldValue) -> bool>)
+    Lambda(Box<Fn(FieldValue) -> bool>, Option<Box<Fn(&str, &str) -> String>>)
 }
 
 pub enum FieldType {
@@ -319,16 +322,30 @@ impl FieldValue {
                             })
                         }
                     },
-                    Rule::Lambda(ref f) => {
+                    Rule::Lambda(ref f, ref err_handler) => {
                         if !f(FieldValue::StrValue(s.clone())) {
-                            return Err(Message {
-                                key: MessageKey::Format,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
-                                    v
-                                }
-                            })
+                            match *err_handler {
+                                Some(ref handler) => {
+                                    return Err(Message {
+                                        key: MessageKey::Custom,
+                                        values: {
+                                            let mut v = HashMap::new();
+                                            v.insert("value".to_string(), handler(&checker.field_name, &s));
+                                            v
+                                        }
+                                    })
+                                },
+                                None => {
+                                    return Err(Message {
+                                        key: MessageKey::Format,
+                                        values: {
+                                            let mut v = HashMap::new();
+                                            v.insert("name".to_string(), checker.field_name.clone());
+                                            v
+                                        }
+                                    })
+                                },
+                            }
                         }
                     }
                 }
@@ -374,16 +391,30 @@ impl FieldValue {
                             })
                         }
                     },
-                    Rule::Lambda(ref f) => {
+                    Rule::Lambda(ref f, ref err_handler) => {
                         if !f(FieldValue::IntValue(i)) {
-                            return Err(Message {
-                                key: MessageKey::Format,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_name.clone());
-                                    v
-                                }
-                            })
+                            match *err_handler {
+                                Some(ref handler) => {
+                                    return Err(Message {
+                                        key: MessageKey::Custom,
+                                        values: {
+                                            let mut v = HashMap::new();
+                                            v.insert("value".to_string(), handler(&checker.field_name, &i.to_string()));
+                                            v
+                                        }
+                                    })
+                                },
+                                None => {
+                                    return Err(Message {
+                                        key: MessageKey::Format,
+                                        values: {
+                                            let mut v = HashMap::new();
+                                            v.insert("name".to_string(), checker.field_name.clone());
+                                            v
+                                        }
+                                    })
+                                },
+                            }
                         }
                     }
                 }

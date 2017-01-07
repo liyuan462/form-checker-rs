@@ -49,6 +49,13 @@ impl<T: IntoMessage> Validator<T> {
         (&(self.valid_data.get(name).unwrap().as_ref().unwrap()[0])).clone()
     }
 
+    pub fn get_optional(&self, name: &str) -> Option<FieldValue> {
+        match self.valid_data.get(name).unwrap().as_ref() {
+            Some(v) => Some(v[0].clone()),
+            None => None,
+        }
+    }
+
     pub fn get_required_multiple(&self, name: &str) -> Vec<FieldValue> {
         self.valid_data.get(name).unwrap().as_ref().unwrap().clone()
     }
@@ -64,6 +71,8 @@ impl<T: IntoMessage> Validator<T> {
 }
 
 enum MessageKey {
+    Max,
+    Min,
     MaxLen,
     MinLen,
     Blank,
@@ -71,13 +80,14 @@ enum MessageKey {
 }
 
 pub trait IntoMessage {
-    fn max_len(&self, name: &str, value: &str) -> String;
-    fn min_len(&self, name: &str, value: &str) -> String;
-    fn blank(&self, name: &str) -> String;
-    fn format(&self, name: &str) -> String;
-}
+    fn max(&self, name: &str, value: &str) -> String {
+        format!("{name}不能大于{value}", name=name, value=value)
+    }
 
-impl IntoMessage for () {
+    fn min(&self, name: &str, value: &str) -> String {
+        format!("{name}不能小于{value}", name=name, value=value)
+    }
+
     fn max_len(&self, name: &str, value: &str) -> String {
         format!("{name}长度不能大于{value}", name=name, value=value)
     }
@@ -94,6 +104,9 @@ impl IntoMessage for () {
     }
 }
 
+impl IntoMessage for () {
+}
+
 struct Message {
     key: MessageKey,
     values: HashMap<String, String>,
@@ -102,12 +115,24 @@ struct Message {
 impl Message {
     fn format_message<T: IntoMessage>(&self, m: &T) -> String {
         match self.key {
+            MessageKey::Max => m.max(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
+            MessageKey::Min => m.min(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
             MessageKey::MaxLen => m.max_len(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
             MessageKey::MinLen => m.min_len(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
             MessageKey::Blank => m.blank(self.values.get("name").unwrap()),
             MessageKey::Format => m.format(self.values.get("name").unwrap()),
         }
     }
+}
+
+pub struct Options {
+    optional: bool,
+    multiple: bool,
+}
+
+pub enum CheckerOption {
+    Optional(bool),
+    Multiple(bool),
 }
 
 #[derive(Clone)]
@@ -202,6 +227,7 @@ impl Checker {
         }
         Ok(field_value)
     }
+
 }
 
 impl Shl<Rule> for Checker {
@@ -210,13 +236,25 @@ impl Shl<Rule> for Checker {
 
     fn shl(self, rule: Rule) -> Checker {
         let mut checker = self.clone();
+        checker.rules.push(rule);
+        checker
+    }
+}
 
-        match rule {
-            Rule::Optional => checker.optional = true,
-            Rule::Multiple => checker.multiple = true,
-            _ => checker.rules.push(rule),
+impl Shl<CheckerOption> for Checker {
+
+    type Output = Checker;
+
+    fn shl(self, option: CheckerOption) -> Checker {
+        let mut checker = self.clone();
+        match option {
+            CheckerOption::Optional(optional) => {
+                checker.optional = optional;
+            },
+            CheckerOption::Multiple(multiple) => {
+                checker.multiple = multiple;
+            }
         }
-
         checker
     }
 }
@@ -226,18 +264,19 @@ pub enum Rule {
     Max(i64),
     Min(i64),
     Format(&'static str),
-    Optional,
-    Multiple,
+    //Lambda(Box<Fn(FieldValue) -> bool>)
 }
 
 #[derive(Clone)]
 pub enum FieldType {
     Str,
+    Int,
 }
 
 #[derive(Clone)]
 pub enum FieldValue {
     StrValue(String),
+    IntValue(i64),
 }
 
 impl FieldType {
@@ -246,6 +285,13 @@ impl FieldType {
             FieldType::Str => {
                 Some(FieldValue::StrValue(value.to_string()))
             },
+            FieldType::Int => {
+                match value.to_string().parse::<i64>() {
+                    Ok(i) => Some(FieldValue::IntValue(i)),
+                    Err(_) => None,
+                }
+            },
+
         }
     }
 }
@@ -294,7 +340,49 @@ impl FieldValue {
                             })
                         }
                     }
-                    _ => {},
+                }
+            }
+            FieldValue::IntValue(i) => {
+                match *rule {
+                    Rule::Max(max) => {
+                        if i > max {
+                            return Err(Message {
+                                key: MessageKey::Max,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("value".to_string(), max.to_string());
+                                    v
+                                }
+                            })
+                        }
+                    },
+                    Rule::Min(min) => {
+                        if i < min {
+                            return Err(Message {
+                                key: MessageKey::Min,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v.insert("value".to_string(), min.to_string());
+                                    v
+                                }
+                            })
+                        }
+                    },
+                    Rule::Format(format) => {
+                        let re = Regex::new(format).unwrap();
+                        if !re.is_match(&i.to_string()) {
+                            return Err(Message {
+                                key: MessageKey::Format,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), checker.field_name.clone());
+                                    v
+                                }
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -304,7 +392,15 @@ impl FieldValue {
     pub fn as_str(&self) -> Option<String> {
         match *self {
             FieldValue::StrValue(ref s) => Some(s.clone()),
-         }
+            _ => None,
+        }
+    }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match *self {
+            FieldValue::IntValue(i) => Some(i),
+            _ => None,
+        }
     }
 
 }

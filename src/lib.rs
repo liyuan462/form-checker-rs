@@ -1,3 +1,26 @@
+//! A library to check the values from a submitted form or a query string.
+//!
+//! This library provides a validator, with the hope of helping Web
+//! developers check user-submitted values in an easy and declarative way.
+//!
+//! # Examples
+//!
+//! ```
+//! use form_checker::{Validator, Checker, Rule, Str};
+//! use std::collections::HashMap;
+//!
+//! let mut validator = Validator::new();
+//! validator
+//!     .check(Checker::new("username", "username", Str)
+//!            .meet(Rule::Max(5))
+//!            .meet(Rule::Min(2)));
+//!
+//! let mut params = std::collections::HashMap::new();
+//! params.insert("username".to_string(), vec!["bob".to_string()]);
+//! validator.validate(&params);
+//! assert_eq!(validator.get_required("username").as_str().unwrap(), "bob".to_string());
+//! ```
+
 extern crate regex;
 
 use std::collections::HashMap;

@@ -4,10 +4,16 @@ use std::collections::HashMap;
 use regex::Regex;
 
 pub struct Validator<T: IntoMessage=()> {
-    pub checkers: Vec<Checker>,
-    pub valid_data: HashMap<String, Option<Vec<FieldValue>>>,
+    pub checkers: Vec<Box<Checkable>>,
+    pub valid_data: HashMap<String, Option<Vec<Box<FieldValue>>>>,
     pub invalid_messages: HashMap<String, String>,
     pub message: T,
+}
+
+pub trait Checkable {
+    fn check(&self, params: &HashMap<String, Vec<String>>) -> Result<Option<Vec<Box<FieldValue>>>, Message>;
+
+    fn get_name(&self) -> String;
 }
 
 impl Validator<()> {
@@ -26,8 +32,8 @@ impl<T: IntoMessage> Validator<T> {
         }
     }
 
-    pub fn check(&mut self, checker: Checker) -> &mut Validator<T> {
-        self.checkers.push(checker);
+    pub fn check<U: Checkable + 'static>(&mut self, checker: U) -> &mut Validator<T> {
+        self.checkers.push(Box::new(checker));
         self
     }
 
@@ -35,29 +41,29 @@ impl<T: IntoMessage> Validator<T> {
         for checker in &self.checkers {
             match checker.check(params) {
                 Ok(v) => {
-                    self.valid_data.insert(checker.field_name.clone(), v);
+                    self.valid_data.insert(checker.get_name().clone(), v);
                 },
                 Err(msg) => {
-                    self.invalid_messages.insert(checker.field_name.clone(), msg.format_message(&self.message));
+                    self.invalid_messages.insert(checker.get_name().clone(), msg.format_message(&self.message));
                 },
             }
         }
     }
 
-    pub fn get_required(&self, name: &str) -> FieldValue {
-        (&(self.valid_data.get(name).unwrap().as_ref().unwrap()[0])).clone()
+    pub fn get_required(&self, name: &str) -> Primitive {
+        (&(self.valid_data.get(name).unwrap().as_ref().unwrap()[0])).to_primitive()
     }
 
-    pub fn get_optional(&self, name: &str) -> Option<FieldValue> {
+    pub fn get_optional(&self, name: &str) -> Option<Primitive> {
         match self.valid_data.get(name).unwrap().as_ref() {
-            Some(v) => Some(v[0].clone()),
+            Some(v) => Some(v[0].to_primitive()),
             None => None,
         }
     }
 
-    pub fn get_required_multiple(&self, name: &str) -> Vec<FieldValue> {
-        self.valid_data.get(name).unwrap().as_ref().unwrap().clone()
-    }
+    pub fn get_required_multiple(&self, name: &str) -> Vec<Primitive> {
+        self.valid_data.get(name).unwrap().as_ref().unwrap().iter().map(|item| item.to_primitive()).collect()
+     }
 
     pub fn get_error(&self, name: &str) -> String {
         self.invalid_messages.get(name).unwrap().clone()
@@ -108,7 +114,7 @@ pub trait IntoMessage {
 impl IntoMessage for () {
 }
 
-struct Message {
+pub struct Message {
     key: MessageKey,
     values: HashMap<String, String>,
 }
@@ -132,28 +138,17 @@ pub enum CheckerOption {
     Multiple(bool),
 }
 
-pub struct Checker {
+pub struct Checker<T: FieldType> {
     field_name: String,
     field_title: String,
-    field_type: FieldType,
+    field_type: T,
     rules: Vec<Rule>,
     optional: bool,
     multiple: bool,
 }
 
-impl Checker {
-    pub fn new(field_name: &str, field_title: &str, field_type: FieldType) -> Checker {
-        Checker {
-            field_name: field_name.to_string(),
-            field_title: field_title.to_string(),
-            field_type: field_type,
-            rules: Vec::new(),
-            optional: false,
-            multiple: false,
-        }
-    }
-
-    fn check(&self, params: &HashMap<String, Vec<String>>) -> Result<Option<Vec<FieldValue>>, Message>{
+impl<T: FieldType> Checkable for Checker<T> {
+    fn check(&self, params: &HashMap<String, Vec<String>>) -> Result<Option<Vec<Box<FieldValue>>>, Message> {
         let values = params.get(&self.field_name);
 
         if values.is_none() {
@@ -177,7 +172,7 @@ impl Checker {
         if self.multiple {
             for value in values {
                 match self.check_value(value) {
-                    Ok(v) => valid_values.push(v),
+                    Ok(v) => valid_values.push(Box::new(v) as Box<FieldValue>),
                     Err(msg) => { return Err(msg); }
                 }
             }
@@ -197,15 +192,34 @@ impl Checker {
             }
 
             match self.check_value(&values[0]) {
-                Ok(v) => valid_values.push(v),
+                Ok(v) => valid_values.push(Box::new(v) as Box<FieldValue>),
                 Err(msg) => { return Err(msg); }
             }
         }
 
         Ok(Some(valid_values))
+
     }
 
-    fn check_value(&self, value: &str) -> Result<FieldValue, Message> {
+    fn get_name(&self) -> String {
+        self.field_name.clone()
+    }
+
+}
+
+impl<T: FieldType> Checker<T> {
+    pub fn new(field_name: &str, field_title: &str, field_type: T) -> Checker<T> {
+        Checker {
+            field_name: field_name.to_string(),
+            field_title: field_title.to_string(),
+            field_type: field_type,
+            rules: Vec::new(),
+            optional: false,
+            multiple: false,
+        }
+    }
+
+    fn check_value(&self, value: &str) -> Result<T::Value, Message> {
         let field_value = self.field_type.from_str(value);
         if field_value.is_none() {
             return Err(Message {
@@ -219,19 +233,19 @@ impl Checker {
         }
         let field_value = field_value.unwrap();
         for rule in &self.rules {
-            if let Err(msg) = field_value.match_rule(self, rule) {
+            if let Err(msg) = field_value.match_rule(&self.field_title, rule) {
                 return Err(msg);
             }
         }
         Ok(field_value)
     }
 
-    pub fn meet(mut self, rule: Rule) -> Checker {
+    pub fn meet(mut self, rule: Rule) -> Checker<T> {
         self.rules.push(rule);
         self
     }
 
-    pub fn set(mut self, option: CheckerOption) -> Checker {
+    pub fn set(mut self, option: CheckerOption) -> Checker<T> {
         match option {
             CheckerOption::Optional(optional) => {
                 self.optional = optional;
@@ -249,194 +263,223 @@ pub enum Rule {
     Max(i64),
     Min(i64),
     Format(&'static str),
-    Lambda(Box<Fn(FieldValue) -> bool>, Option<Box<Fn(&str, &str) -> String>>)
+    Lambda(Box<Fn(Primitive) -> bool>, Option<Box<Fn(&str, &str) -> String>>)
 }
 
-pub enum FieldType {
-    Str,
-    Int,
+pub trait FieldType {
+    type Value: FieldValue + Clone + 'static;
+
+    fn from_str(&self, value: &str) -> Option<Self::Value>;
 }
 
-#[derive(Clone)]
-pub enum FieldValue {
-    StrValue(String),
-    IntValue(i64),
+pub trait FieldValue {
+    fn match_rule(&self, field_title: &str, rule: &Rule) -> Result<(), Message>;
+    fn to_primitive(&self) -> Primitive;
 }
 
-impl FieldType {
-    fn from_str(&self, value: &str) -> Option<FieldValue> {
-        match *self {
-            FieldType::Str => {
-                Some(FieldValue::StrValue(value.to_string()))
-            },
-            FieldType::Int => {
-                match value.to_string().parse::<i64>() {
-                    Ok(i) => Some(FieldValue::IntValue(i)),
-                    Err(_) => None,
-                }
-            },
-
-        }
-    }
+pub enum Primitive {
+    Str(String),
+    I64(i64),
 }
 
-impl FieldValue {
-    fn match_rule(&self, checker: &Checker, rule: &Rule) -> Result<(), Message> {
-        match *self {
-            FieldValue::StrValue(ref s) => {
-                match *rule {
-                    Rule::Max(max) => {
-                        if s.len() > max as usize {
-                            return Err(Message {
-                                key: MessageKey::MaxLen,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_title.clone());
-                                    v.insert("value".to_string(), max.to_string());
-                                    v
-                                }
-                            })
-                        }
-                    },
-                    Rule::Min(min) => {
-                        if s.len() < min as usize {
-                            return Err(Message {
-                                key: MessageKey::MinLen,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_title.clone());
-                                    v.insert("value".to_string(), min.to_string());
-                                    v
-                                }
-                            })
-                        }
-                    },
-                    Rule::Format(format) => {
-                        let re = Regex::new(format).unwrap();
-                        if !re.is_match(s) {
-                            return Err(Message {
-                                key: MessageKey::Format,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_title.clone());
-                                    v
-                                }
-                            })
-                        }
-                    },
-                    Rule::Lambda(ref f, ref err_handler) => {
-                        if !f(FieldValue::StrValue(s.clone())) {
-                            match *err_handler {
-                                Some(ref handler) => {
-                                    return Err(Message {
-                                        key: MessageKey::Custom,
-                                        values: {
-                                            let mut v = HashMap::new();
-                                            v.insert("value".to_string(), handler(&checker.field_title, &s));
-                                            v
-                                        }
-                                    })
-                                },
-                                None => {
-                                    return Err(Message {
-                                        key: MessageKey::Format,
-                                        values: {
-                                            let mut v = HashMap::new();
-                                            v.insert("name".to_string(), checker.field_title.clone());
-                                            v
-                                        }
-                                    })
-                                },
-                            }
-                        }
-                    }
-                }
-            }
-            FieldValue::IntValue(i) => {
-                match *rule {
-                    Rule::Max(max) => {
-                        if i > max {
-                            return Err(Message {
-                                key: MessageKey::Max,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_title.clone());
-                                    v.insert("value".to_string(), max.to_string());
-                                    v
-                                }
-                            })
-                        }
-                    },
-                    Rule::Min(min) => {
-                        if i < min {
-                            return Err(Message {
-                                key: MessageKey::Min,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_title.clone());
-                                    v.insert("value".to_string(), min.to_string());
-                                    v
-                                }
-                            })
-                        }
-                    },
-                    Rule::Format(format) => {
-                        let re = Regex::new(format).unwrap();
-                        if !re.is_match(&i.to_string()) {
-                            return Err(Message {
-                                key: MessageKey::Format,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), checker.field_title.clone());
-                                    v
-                                }
-                            })
-                        }
-                    },
-                    Rule::Lambda(ref f, ref err_handler) => {
-                        if !f(FieldValue::IntValue(i)) {
-                            match *err_handler {
-                                Some(ref handler) => {
-                                    return Err(Message {
-                                        key: MessageKey::Custom,
-                                        values: {
-                                            let mut v = HashMap::new();
-                                            v.insert("value".to_string(), handler(&checker.field_title, &i.to_string()));
-                                            v
-                                        }
-                                    })
-                                },
-                                None => {
-                                    return Err(Message {
-                                        key: MessageKey::Format,
-                                        values: {
-                                            let mut v = HashMap::new();
-                                            v.insert("name".to_string(), checker.field_title.clone());
-                                            v
-                                        }
-                                    })
-                                },
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
+impl Primitive {
     pub fn as_str(&self) -> Option<String> {
         match *self {
-            FieldValue::StrValue(ref s) => Some(s.clone()),
-            _ => None,
+            Primitive::Str(ref s) => Some(s.clone()),
+            _ => None
         }
     }
 
-    pub fn as_int(&self) -> Option<i64> {
+    pub fn as_i64(&self) -> Option<i64> {
         match *self {
-            FieldValue::IntValue(i) => Some(i),
-            _ => None,
+            Primitive::I64(i) => Some(i),
+            _ => None
         }
     }
 
 }
+
+pub struct Str;
+
+#[derive(Clone)]
+pub struct StrValue(String);
+
+impl FieldType for Str {
+    type Value = StrValue;
+
+    fn from_str(&self, value: &str) -> Option<StrValue> {
+        Some(StrValue(value.to_string()))
+    }
+}
+
+impl FieldValue for StrValue {
+    fn to_primitive(&self) -> Primitive {
+        Primitive::Str(self.0.clone())
+    }
+
+    fn match_rule(&self, field_title: &str, rule: &Rule) -> Result<(), Message> {
+        match *rule {
+            Rule::Max(max) => {
+                if self.0.len() > max as usize {
+                    return Err(Message {
+                        key: MessageKey::MaxLen,
+                        values: {
+                            let mut v = HashMap::new();
+                            v.insert("name".to_string(), field_title.to_string());
+                            v.insert("value".to_string(), max.to_string());
+                            v
+                        }
+                    })
+                }
+            },
+            Rule::Min(min) => {
+                if self.0.len() < min as usize {
+                    return Err(Message {
+                        key: MessageKey::MinLen,
+                        values: {
+                            let mut v = HashMap::new();
+                            v.insert("name".to_string(), field_title.to_string());
+                            v.insert("value".to_string(), min.to_string());
+                            v
+                        }
+                    })
+                }
+            },
+            Rule::Format(format) => {
+                let re = Regex::new(format).unwrap();
+                if !re.is_match(&self.0) {
+                    return Err(Message {
+                        key: MessageKey::Format,
+                        values: {
+                            let mut v = HashMap::new();
+                            v.insert("name".to_string(), field_title.to_string());
+                            v
+                        }
+                    })
+                }
+            },
+            Rule::Lambda(ref f, ref err_handler) => {
+                if !f(self.to_primitive()) {
+                    match *err_handler {
+                        Some(ref handler) => {
+                            return Err(Message {
+                                key: MessageKey::Custom,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("value".to_string(), handler(field_title, &self.0));
+                                    v
+                                }
+                            })
+                        },
+                        None => {
+                            return Err(Message {
+                                key: MessageKey::Format,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), field_title.to_string());
+                                    v
+                                }
+                            })
+                        },
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+pub struct I64;
+
+#[derive(Clone)]
+pub struct I64Value(i64);
+
+impl FieldType for I64 {
+    type Value = I64Value;
+    fn from_str(&self, value: &str) -> Option<I64Value> {
+        match value.to_string().parse::<i64>() {
+            Ok(i) => Some(I64Value(i)),
+            Err(_) => None,
+        }
+    }
+}
+
+impl FieldValue for I64Value {
+    fn to_primitive(&self) -> Primitive {
+        Primitive::I64(self.0)
+    }
+
+    fn match_rule(&self, field_title: &str, rule: &Rule) -> Result<(), Message> {
+        match *rule {
+            Rule::Max(max) => {
+                if self.0 > max {
+                    return Err(Message {
+                        key: MessageKey::Max,
+                        values: {
+                            let mut v = HashMap::new();
+                            v.insert("name".to_string(), field_title.to_string());
+                            v.insert("value".to_string(), max.to_string());
+                            v
+                        }
+                    })
+                }
+            },
+            Rule::Min(min) => {
+                if self.0 < min {
+                    return Err(Message {
+                        key: MessageKey::Min,
+                        values: {
+                            let mut v = HashMap::new();
+                            v.insert("name".to_string(), field_title.to_string());
+                            v.insert("value".to_string(), min.to_string());
+                            v
+                        }
+                    })
+                }
+            },
+            Rule::Format(format) => {
+                let re = Regex::new(format).unwrap();
+                if !re.is_match(&self.0.to_string()) {
+                    return Err(Message {
+                        key: MessageKey::Format,
+                        values: {
+                            let mut v = HashMap::new();
+                            v.insert("name".to_string(), field_title.to_string());
+                            v
+                        }
+                    })
+                }
+            },
+            Rule::Lambda(ref f, ref err_handler) => {
+                if !f(self.to_primitive()) {
+                    match *err_handler {
+                        Some(ref handler) => {
+                            return Err(Message {
+                                key: MessageKey::Custom,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("value".to_string(), handler(field_title, &self.0.to_string()));
+                                    v
+                                }
+                            })
+                        },
+                        None => {
+                            return Err(Message {
+                                key: MessageKey::Format,
+                                values: {
+                                    let mut v = HashMap::new();
+                                    v.insert("name".to_string(), field_title.to_string());
+                                    v
+                                }
+                            })
+                        },
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+

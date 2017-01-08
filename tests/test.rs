@@ -1,14 +1,15 @@
 extern crate form_checker;
 
 use std::collections::HashMap;
-use form_checker::{Validator, Checker, FieldType, Rule, IntoMessage, CheckerOption, FieldValue};
+use form_checker::{Validator, Checker, Rule, IntoMessage, CheckerOption, Str, I64};
 
 #[test]
 fn check_str() {
     let mut validator = Validator::new();
-    validator.check(Checker::new("username", "username", FieldType::Str)
-                    .meet(Rule::Max(5))
-                    .meet(Rule::Min(2)));
+    validator
+        .check(Checker::new("username", "username", Str)
+              .meet(Rule::Max(5))
+              .meet(Rule::Min(2)));
 
     ////////////////////////////////////////////////
     validator.reset();
@@ -43,7 +44,7 @@ fn check_str() {
 fn check_str_format() {
     let mut validator = Validator::new();
     validator
-        .check(Checker::new("username", "username", FieldType::Str)
+        .check(Checker::new("username", "username", Str)
                      .meet(Rule::Format(r"l\dy")));
 
     let mut params = HashMap::new();
@@ -93,7 +94,7 @@ fn other_message_lang() {
 
     let mut validator = Validator::with_message(MyMessage);
     validator
-        .check(Checker::new("username", "username", FieldType::Str)
+        .check(Checker::new("username", "username", Str)
                      .meet(Rule::Format(r"l\dy")));
 
     let mut params = HashMap::new();
@@ -107,7 +108,7 @@ fn other_message_lang() {
 fn check_optional() {
     let mut validator = Validator::new();
     validator
-        .check(Checker::new("username", "username", FieldType::Str)
+        .check(Checker::new("username", "username", Str)
                      .set(CheckerOption::Optional(true))
                      .meet(Rule::Max(5))
                      .meet(Rule::Min(2)));
@@ -123,18 +124,17 @@ fn check_optional() {
     ////////////////////////////////////////////////
     validator.reset();
 
-    let mut params = HashMap::new();
+    let params = HashMap::new();
     validator.validate(&params);
     assert!(validator.get_optional("username").is_none());
 
 }
 
-
 #[test]
-fn check_int() {
+fn check_i64() {
     let mut validator = Validator::new();
     validator
-        .check(Checker::new("age", "age", FieldType::Int)
+        .check(Checker::new("age", "age", I64)
                      .meet(Rule::Max(5))
                      .meet(Rule::Min(2)));
 
@@ -144,7 +144,7 @@ fn check_int() {
     let mut params = HashMap::new();
     params.insert("age".to_string(), vec!["3".to_string()]);
     validator.validate(&params);
-    assert_eq!(validator.get_required("age").as_int().unwrap(), 3);
+    assert_eq!(validator.get_required("age").as_i64().unwrap(), 3);
 
     ////////////////////////////////////////////////
 
@@ -161,7 +161,7 @@ fn check_int() {
 
     validator.reset();
 
-    let mut params = HashMap::new();
+    let params = HashMap::new();
     validator.validate(&params);
     assert_eq!(validator.invalid_messages.len(), 1);
     assert_eq!(validator.get_error("age"), "age不能为空");
@@ -178,13 +178,13 @@ fn check_int() {
 
     let mut validator = Validator::new();
     validator
-        .check(Checker::new("age", "age", FieldType::Int)
+        .check(Checker::new("age", "age", I64)
                      .meet(Rule::Format(r"\d{4}")));
 
     let mut params = HashMap::new();
     params.insert("age".to_string(), vec!["3456".to_string()]);
     validator.validate(&params);
-    assert_eq!(validator.get_required("age").as_int().unwrap(), 3456);
+    assert_eq!(validator.get_required("age").as_i64().unwrap(), 3456);
 
     ////////////////////////////////////////////////
 
@@ -200,8 +200,8 @@ fn check_int() {
 #[test]
 fn check_lambda() {
     let mut validator = Validator::new();
-    validator.check(Checker::new("username", "username", FieldType::Str)
-                    .meet(Rule::Lambda(Box::new(|v| true), None)));
+    validator.check(Checker::new("username", "username", Str)
+                    .meet(Rule::Lambda(Box::new(|_| true), None)));
 
     let mut params = HashMap::new();
     params.insert("username".to_string(), vec!["bob".to_string()]);
@@ -209,7 +209,7 @@ fn check_lambda() {
     assert_eq!(validator.get_required("username").as_str().unwrap(), "bob".to_string());
 
     let mut validator = Validator::new();
-    validator.check(Checker::new("username", "username", FieldType::Str)
+    validator.check(Checker::new("username", "username", Str)
                     .meet(Rule::Lambda(Box::new(|v| v.as_str().unwrap().len() == 3), None)));
 
     let mut params = HashMap::new();
@@ -226,7 +226,7 @@ fn check_lambda() {
     assert_eq!(validator.get_error("username"), "username格式不正确");
 
     let mut validator = Validator::new();
-    validator.check(Checker::new("username", "username", FieldType::Str)
+    validator.check(Checker::new("username", "username", Str)
                     .meet(Rule::Lambda(Box::new(|v| v.as_str().unwrap().len() == 3),
                     Some(Box::new(|name, value| format!("{}格式不对:{}", name, value))))));
 
@@ -241,7 +241,7 @@ fn check_lambda() {
 #[test]
 fn check_title() {
     let mut validator = Validator::new();
-    validator.check(Checker::new("username", "用户名", FieldType::Str)
+    validator.check(Checker::new("username", "用户名", Str)
                     .meet(Rule::Max(5))
                     .meet(Rule::Min(2)));
 

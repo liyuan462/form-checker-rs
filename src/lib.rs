@@ -13,13 +13,18 @@
 //! let mut params = std::collections::HashMap::new();
 //! params.insert("username".to_string(), vec!["bob".to_string()]);
 //!
+//! // Make a new Validator.
 //! let mut validator = Validator::new();
+//! // Add Checkers to Validator.
 //! validator
 //!     .check(Checker::new("username", "username", Str)
 //!            .meet(Rule::Max(5))
 //!            .meet(Rule::Min(2)));
-//!
+//! // Validating it!
 //! validator.validate(&params);
+//! // Decide whether it is valid.
+//! assert!(validator.is_valid());
+//! // Show me the valid data, assuming it is valid.
 //! assert_eq!(validator.get_required("username").as_str().unwrap(), "bob".to_string());
 //! ```
 
@@ -504,4 +509,3 @@ impl FieldType for Email {
         Ok(FieldValue::Str(value.to_string()))
     }
 }
-

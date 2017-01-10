@@ -48,7 +48,6 @@ pub struct Validator<T: IntoMessage=()> {
 
 pub trait Checkable {
     fn check(&self, params: &HashMap<String, Vec<String>>) -> Result<Option<Vec<FieldValue>>, Message>;
-
     fn get_name(&self) -> String;
 }
 
@@ -457,7 +456,6 @@ impl FieldType for Str {
         Ok(FieldValue::Str(value.to_string()))
     }
 }
-
 
 pub struct I64;
 

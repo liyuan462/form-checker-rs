@@ -1,7 +1,7 @@
 extern crate form_checker;
 
 use std::collections::HashMap;
-use form_checker::{Validator, Checker, Rule, IntoMessage, CheckerOption, Str, I64};
+use form_checker::{Validator, Checker, Rule, IntoMessage, CheckerOption, Str, I64, ChinaMobile, Email};
 
 #[test]
 fn check_str() {
@@ -252,4 +252,92 @@ fn check_title() {
     assert_eq!(validator.invalid_messages.len(), 1);
     assert_eq!(validator.get_error("username"), "用户名长度不能小于2");
 
+}
+
+#[test]
+fn check_multiple() {
+    let mut validator = Validator::new();
+    validator.check(Checker::new("username", "用户名", Str)
+                    .set(CheckerOption::Multiple(true))
+                    .meet(Rule::Max(5))
+                    .meet(Rule::Min(2)));
+
+    let mut params = HashMap::new();
+    params.insert("username".to_string(), vec!["bob".to_string(), "mary".to_string()]);
+    validator.validate(&params);
+    assert!(validator.is_valid());
+    assert_eq!(validator.get_required_multiple("username").iter().map(|item| item.as_str().unwrap()).collect::<Vec<_>>(), vec!["bob".to_string(), "mary".to_string()]);
+
+    ////////////////////////////////////////////////
+
+    validator.reset();
+    let mut params = HashMap::new();
+    params.insert("username".to_string(), vec!["bob".to_string(), "i".to_string()]);
+    validator.validate(&params);
+    assert!(!validator.is_valid());
+    assert_eq!(validator.get_error("username"), "用户名长度不能小于2");
+}
+
+#[test]
+fn check_china_mobile() {
+    let mut validator = Validator::new();
+    validator.check(Checker::new("mobile", "手机", ChinaMobile));
+
+    let mut params = HashMap::new();
+    params.insert("mobile".to_string(), vec!["13334567890".to_string()]);
+    validator.validate(&params);
+    assert!(validator.is_valid());
+
+    ////////////////////////////////////////////////
+
+    validator.reset();
+    let mut params = HashMap::new();
+    params.insert("mobile".to_string(), vec!["23444".to_string()]);
+    validator.validate(&params);
+    assert!(!validator.is_valid());
+    assert_eq!(validator.get_error("mobile"), "手机格式不正确");
+
+}
+
+#[test]
+fn check_email() {
+    let mut validator = Validator::new();
+    validator.check(Checker::new("email", "邮箱", Email));
+
+    let mut params = HashMap::new();
+    params.insert("email".to_string(), vec!["abb@howadata.com".to_string()]);
+    validator.validate(&params);
+    assert!(validator.is_valid());
+
+    ////////////////////////////////////////////////
+
+    validator.reset();
+    let mut params = HashMap::new();
+    params.insert("email".to_string(), vec!["abb@howadata".to_string()]);
+    validator.validate(&params);
+    assert!(!validator.is_valid());
+    assert_eq!(validator.get_error("email"), "邮箱格式不正确");
+
+}
+
+#[test]
+fn multi_checkers() {
+    let mut validator = Validator::new();
+    validator.check(Checker::new("email", "邮箱", Email))
+        .check(Checker::new("mobile", "手机", ChinaMobile));
+
+    let mut params = HashMap::new();
+    params.insert("email".to_string(), vec!["abb@howadata.com".to_string()]);
+    validator.validate(&params);
+    assert!(!validator.is_valid());
+    assert_eq!(validator.invalid_messages.len(), 1);
+    assert_eq!(validator.get_error("mobile"), "手机不能为空");
+
+    ////////////////////////////////////////////////
+
+    validator.reset();
+    params.insert("email".to_string(), vec!["abb@howadata.com".to_string()]);
+    params.insert("mobile".to_string(), vec!["13334567890".to_string()]);
+    validator.validate(&params);
+    assert!(validator.is_valid());
 }

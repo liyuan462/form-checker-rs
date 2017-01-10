@@ -7,21 +7,32 @@ A library for Web developers to check the values from a submitted form or a quer
 ```rust
 extern crate form_checker;
 
-use std::collections::HashMap;
-use form_checker::{Validator, Checker, Rule, Str};
+use form_checker::{Validator, Checker, Rule, Str, I64};
 
 fn main() {
-    let mut params = HashMap::new();
-    params.insert("username".to_string(), vec!["bob".to_string()]);
-
+    // Prepare params, this is just for illustrating. Usually, we get
+    // params through decoding a URL-encoded string into a
+    // HashMap<String, Vec<String>>.
+    let mut params = std::collections::HashMap::new();
+    params.insert("name".to_string(), vec!["bob".to_string()]);
+    params.insert("age".to_string(), vec!["20".to_string()]);
+   
+    // Make a new Validator.
     let mut validator = Validator::new();
+    // Add Checkers to Validator.
     validator
-        .check(Checker::new("username", "username", Str)
-              .meet(Rule::Max(5))
-              .meet(Rule::Min(2)));
-
+        .check(Checker::new("name", "姓名", Str)
+               .meet(Rule::Max(5))
+               .meet(Rule::Min(2)))
+        .check(Checker::new("age", "年龄", I64)
+               .meet(Rule::Max(100))
+               .meet(Rule::Min(18)));
+    // Validate it!
     validator.validate(&params);
-    
-    assert_eq!(validator.get_required("username").as_str().unwrap(), "bob".to_string());
+    // Decide whether it is valid.
+    assert!(validator.is_valid());
+    // Show me the valid data, assuming it is valid.
+    assert_eq!(validator.get_required("name").as_str().unwrap(), "bob".to_string());
+    assert_eq!(validator.get_required("age").as_i64().unwrap(), 20);
 }
 ```

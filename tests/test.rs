@@ -1,7 +1,7 @@
 extern crate form_checker;
 
 use std::collections::HashMap;
-use form_checker::{Validator, Checker, Rule, IntoMessage, CheckerOption, Str, I64, ChinaMobile, Email};
+use form_checker::{Validator, Checker, Rule, MessageRenderer, CheckerOption, Str, I64, ChinaMobile, Email, SomeMessage, MessageKind};
 
 #[test]
 fn check_str() {
@@ -62,37 +62,24 @@ fn check_str_format() {
     assert_eq!(validator.get_required("username").as_str().unwrap(), "l5y".to_string());
 }
 
-struct MyMessage;
-impl IntoMessage for MyMessage {
-    fn max(&self, name: &str, value: &str) -> String {
-        format!("{name} can't be more than {value}", name=name, value=value)
-    }
-
-    fn min(&self, name: &str, value: &str) -> String {
-        format!("{name} can't be less than {value}", name=name, value=value)
-    }
-
-    fn max_len(&self, name: &str, value: &str) -> String {
-        format!("{name} can't be longer than {value}", name=name, value=value)
-    }
-
-    fn min_len(&self, name: &str, value: &str) -> String {
-        format!("{name} can't be shorter than {value}", name=name, value=value)
-    }
-
-    fn blank(&self, name: &str) -> String {
-        format!("{name} is missing", name=name)
-    }
-
-    fn format(&self, name: &str) -> String {
-        format!("{name} is in wrong format", name=name)
+struct EnglishMessageRenderer;
+impl MessageRenderer for EnglishMessageRenderer {
+    fn render_message(&self, m: SomeMessage) -> String {
+        match m.kind {
+            MessageKind::Max => format!("{title} can't be more than {rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::Min => format!("{title} can't be less than {rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::MaxLen => format!("{title} can't be longer than {rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::MinLen => format!("{title} can't be shorter than {rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::Blank => format!("{title} is missing", title=m.title),
+            MessageKind::Format => format!("{title} is in wrong format", title=m.title),
+        }
     }
 }
 
 #[test]
 fn other_message_lang() {
 
-    let mut validator = Validator::with_message(MyMessage);
+    let mut validator = Validator::with_message(EnglishMessageRenderer);
     validator
         .check(Checker::new("username", "username", Str)
                      .meet(Rule::Format(r"l\dy")));
@@ -228,7 +215,7 @@ fn check_lambda() {
     let mut validator = Validator::new();
     validator.check(Checker::new("username", "username", Str)
                     .meet(Rule::Lambda(Box::new(|v| v.as_str().unwrap().len() == 3),
-                    Some(Box::new(|name, value| format!("{}格式不对:{}", name, value))))));
+                    Some(Box::new(|_, title, value| format!("{}格式不对:{}", title, value))))));
 
     let mut params = HashMap::new();
     params.insert("username".to_string(), vec!["b".to_string()]);

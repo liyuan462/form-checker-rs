@@ -39,11 +39,23 @@ use std::fmt;
 use std::collections::HashMap;
 use regex::Regex;
 
-pub struct Validator<T: IntoMessage=()> {
+/// The Validator type.
+///
+/// Each time we want to validate form values, we make a validator.
+///
+/// Firstly, we add checkers to it calling its `check` method.
+///
+/// Then, we call its `validator` method to do the validating thing.
+///
+/// Finally, we get valid keys and values from its `valid_data` member and get invalid
+/// keys and messages from  its `invalid_messages` member.
+///
+/// The `message_renderer` member is used to custom invalid messages.
+pub struct Validator<T: MessageRenderer=()> {
     pub checkers: Vec<Box<Checkable>>,
     pub valid_data: HashMap<String, Option<Vec<FieldValue>>>,
     pub invalid_messages: HashMap<String, String>,
-    pub message: T,
+    pub message_renderer: T,
 }
 
 pub trait Checkable {
@@ -52,26 +64,76 @@ pub trait Checkable {
 }
 
 impl Validator<()> {
+    /// Constructs a new `Validator` with the default message renderer.
     pub fn new() -> Validator<()> {
         Validator::with_message(())
     }
 }
 
-impl<T: IntoMessage> Validator<T> {
-    pub fn with_message(message: T) -> Validator<T> {
+impl<T: MessageRenderer> Validator<T> {
+    /// Constructs a new `Validator` with a custom message renderer.
+    ///
+    /// Often, when there are invalid values, we want to show the users why.
+    /// And you might want to custom the format for kinds of messages, especially,
+    /// in your native language.
+    /// You do it by giving a `MessageRenderer`.
+    ///
+    /// The default message renderer uses Simple Chinese.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, MessageRenderer, MessageKind, SomeMessage};
+    /// struct EnglishMessageRenderer;
+    /// impl MessageRenderer for EnglishMessageRenderer {
+    ///     fn render_message(&self, m: SomeMessage) -> String {
+    ///         match m.kind {
+    ///             MessageKind::Max => format!("{title} can't be more than {rule}", title=m.title, rule=m.rule_values[0]),
+    ///             MessageKind::Min => format!("{title} can't be less than {rule}", title=m.title, rule=m.rule_values[0]),
+    ///             MessageKind::MaxLen => format!("{title} can't be longer than {rule}", title=m.title, rule=m.rule_values[0]),
+    ///             MessageKind::MinLen => format!("{title} can't be shorter than {rule}", title=m.title, rule=m.rule_values[0]),
+    ///             MessageKind::Blank => format!("{title} is missing", title=m.title),
+    ///             MessageKind::Format => format!("{title} is in wrong format", title=m.title),
+    ///         }
+    ///     }
+    /// }
+    /// let mut validator = Validator::with_message(EnglishMessageRenderer);
+    /// ```
+    pub fn with_message(message_renderer: T) -> Validator<T> {
         Validator {
             checkers: Vec::new(),
             valid_data: HashMap::new(),
             invalid_messages: HashMap::new(),
-            message: message,
+            message_renderer: message_renderer,
         }
     }
 
+    /// Add a checker to this validator.
+    ///
+    /// We can chain this call to add multiple checkers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, Rule, Str, I64};
+    /// let mut validator = Validator::new();
+    /// // Add Checkers to Validator.
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)))
+    ///     .check(Checker::new("age", "年龄", I64)
+    ///            .meet(Rule::Max(100))
+    ///            .meet(Rule::Min(18)));
+    /// ```
     pub fn check<U: Checkable + 'static>(&mut self, checker: U) -> &mut Validator<T> {
         self.checkers.push(Box::new(checker));
         self
     }
 
+    /// Do the validating logic.
+    ///
+    /// Don't forget to add checkers first.
     pub fn validate(&mut self, params: &HashMap<String, Vec<String>>) {
         for checker in &self.checkers {
             match checker.check(params) {
@@ -79,16 +141,70 @@ impl<T: IntoMessage> Validator<T> {
                     self.valid_data.insert(checker.get_name().clone(), v);
                 },
                 Err(msg) => {
-                    self.invalid_messages.insert(checker.get_name().clone(), msg.format_message(&self.message));
+                    self.invalid_messages.insert(checker.get_name().clone(),
+                                                 self.message_renderer.render(msg));
                 },
             }
         }
     }
 
+    /// Get a required valid value after validating.
+    ///
+    /// # Panics
+    ///
+    /// Call this method when you're sure the value exists and is valid, or it panics!
+    ///
+    /// You may want to call `is_valid` method first, when that is true,
+    /// you have confidence that this call will not panic!
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    /// params.insert("name".to_string(), vec!["bob".to_string()]);
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(validator.is_valid());
+    /// assert_eq!(validator.get_required("name").as_str().unwrap(), "bob".to_string());
+    /// ```
     pub fn get_required(&self, name: &str) -> FieldValue {
         self.valid_data.get(name).unwrap().as_ref().unwrap()[0].clone()
     }
 
+    /// Get a optional valid value after validating.
+    ///
+    /// This method is for getting **optional** values, the value which is allowed
+    /// to be missing.
+    ///
+    /// Refer to `CheckerOption::Optional`
+    ///
+    /// # Panics
+    ///
+    /// You may want to call `is_valid` method first, when that is true,
+    /// you have confidence that this call will not panic!
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, CheckerOption, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .set(CheckerOption::Optional(true))
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(validator.is_valid());
+    /// assert!(validator.get_optional("name").is_none());
+    /// ```
     pub fn get_optional(&self, name: &str) -> Option<FieldValue> {
         match self.valid_data.get(name).unwrap().as_ref() {
             Some(v) => Some(v[0].clone()),
@@ -96,84 +212,199 @@ impl<T: IntoMessage> Validator<T> {
         }
     }
 
+    /// Get multiple valid values after validating.
+    ///
+    /// Sometimes we need a vector of values which have the same field name.
+    ///
+    /// This method is for getting **required** **multiple** values
+    ///
+    /// Refer to `CheckerOption::Multiple`
+    ///
+    /// # Panics
+    ///
+    /// You may want to call `is_valid` method first, when that is true,
+    /// you have confidence that this call will not panic!
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, CheckerOption, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    /// params.insert("name".to_string(), vec!["bob".to_string(), "mary".to_string()]);
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .set(CheckerOption::Multiple(true))
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(validator.is_valid());
+    /// assert_eq!(validator.get_required_multiple("name").iter().map(|item| item.as_str().unwrap()).collect::<Vec<_>>(), vec!["bob".to_string(), "mary".to_string()]);
+    /// ```
     pub fn get_required_multiple(&self, name: &str) -> Vec<FieldValue> {
         self.valid_data.get(name).unwrap().as_ref().unwrap().clone()
      }
 
+    /// Get optional multiple valid values after validating.
+    ///
+    /// Sometimes we need a vector of values which have the same field name.
+    ///
+    /// This method is for getting **optional** **multiple** values
+    ///
+    /// Refer to `CheckerOption`
+    ///
+    /// # Panics
+    ///
+    /// You may want to call `is_valid` method first, when that is true,
+    /// you have confidence that this call will not panic!
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, CheckerOption, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    /// params.insert("name".to_string(), vec!["bob".to_string(), "mary".to_string()]);
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .set(CheckerOption::Multiple(true))
+    ///            .set(CheckerOption::Optional(true))
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(validator.is_valid());
+    /// assert_eq!(validator.get_optional_multiple("name").unwrap().iter().map(|item| item.as_str().unwrap()).collect::<Vec<_>>(), vec!["bob".to_string(), "mary".to_string()]);
+    /// ```
     pub fn get_optional_multiple(&self, name: &str) -> Option<Vec<FieldValue>> {
         self.valid_data.get(name).unwrap().clone()
     }
 
+    /// Tell you whether the validator is valid or not, you must first call
+    /// `validate` method.
     pub fn is_valid(&self) -> bool {
         self.valid_data.len() == self.checkers.len()
     }
 
+    /// Get an error message.
+    ///
+    /// # Panics
+    ///
+    /// Make sure you know this field is invalid before you get its message,
+    /// or it panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    /// params.insert("name".to_string(), vec!["b".to_string()]);
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(!validator.is_valid());
+    /// assert_eq!(validator.get_error("name"), "姓名长度不能小于2");
+    /// ```
     pub fn get_error(&self, name: &str) -> String {
         self.invalid_messages.get(name).unwrap().clone()
     }
 
+    /// Clear the valid_data and invalid_messages, as if you have not called `validate`.
     pub fn reset(&mut self) {
         self.valid_data.clear();
         self.invalid_messages.clear();
     }
 }
 
-enum MessageKey {
+/// This enum is used to mark a type of a `Message`
+pub enum MessageKind {
+    /// Greater than maximum value, eg. for an int value.
     Max,
+    /// Less than mininum value, eg. for an int value.
     Min,
+    /// Longer than maximum lenghth, eg. for a string value.
     MaxLen,
+    /// Shorter than minimum length, eg. for a string value.
     MinLen,
+    /// Value required, but missing.
     Blank,
+    /// Value not match some format.
     Format,
-    Custom,
 }
 
-pub trait IntoMessage {
-    fn max(&self, name: &str, value: &str) -> String {
-        format!("{name}不能大于{value}", name=name, value=value)
-    }
-
-    fn min(&self, name: &str, value: &str) -> String {
-        format!("{name}不能小于{value}", name=name, value=value)
-    }
-
-    fn max_len(&self, name: &str, value: &str) -> String {
-        format!("{name}长度不能大于{value}", name=name, value=value)
-    }
-
-    fn min_len(&self, name: &str, value: &str) -> String {
-        format!("{name}长度不能小于{value}", name=name, value=value)
-    }
-
-    fn blank(&self, name: &str) -> String {
-        format!("{name}不能为空", name=name)
-    }
-
-    fn format(&self, name: &str) -> String {
-        format!("{name}格式不正确", name=name)
-    }
+/// A general message wrapper
+pub enum Message {
+    /// A customized message, just show any message given.
+    Any(String),
+    /// A kind of message predefined.
+    Some(SomeMessage),
 }
 
-impl IntoMessage for () {
-}
-
-pub struct Message {
-    key: MessageKey,
-    values: HashMap<String, String>,
+/// A specific message
+pub struct SomeMessage {
+    /// Refer to `MessageKind`.
+    pub kind: MessageKind,
+    /// The field name.
+    pub name: String,
+    /// The field title.
+    pub title: String,
+    /// The field raw value, None if missing.
+    pub value: Option<String>,
+    /// rule related values, such as max and min, as strings.
+    pub rule_values: Vec<String>,
 }
 
 impl Message {
-    fn format_message<T: IntoMessage>(&self, m: &T) -> String {
-        match self.key {
-            MessageKey::Max => m.max(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
-            MessageKey::Min => m.min(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
-            MessageKey::MaxLen => m.max_len(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
-            MessageKey::MinLen => m.min_len(self.values.get("name").unwrap(), self.values.get("value").unwrap()),
-            MessageKey::Blank => m.blank(self.values.get("name").unwrap()),
-            MessageKey::Format => m.format(self.values.get("name").unwrap()),
-            MessageKey::Custom => self.values.get("value").unwrap().clone(),
+    pub fn some(kind: MessageKind, name: &str, title: &str, value: Option<String>, rule_values: Vec<String>) -> Message {
+        Message::Some(SomeMessage {
+            kind: kind,
+            name: name.to_string(),
+            title: title.to_string(),
+            value: value,
+            rule_values: rule_values,
+        })
+    }
+
+    pub fn any(message: &str) -> Message {
+        Message::Any(message.to_string())
+    }
+}
+
+/// If you want your own message format, implement this trait.
+///
+/// The default implementation is in simple Chinese.
+pub trait MessageRenderer {
+    fn render_message(&self, m: SomeMessage) -> String {
+        match m.kind {
+            MessageKind::Max => format!("{title}不能大于{rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::Min => format!("{title}不能小于{rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::MaxLen => format!("{title}长度不能大于{rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::MinLen => format!("{title}长度不能小于{rule}", title=m.title, rule=m.rule_values[0]),
+            MessageKind::Blank => format!("{title}不能为空", title=m.title),
+            MessageKind::Format => format!("{title}格式不正确", title=m.title),
         }
     }
+}
+
+trait Renderable {
+    fn render(&self, m:Message) -> String;
+}
+
+impl<T:MessageRenderer> Renderable for T {
+    fn render(&self, m: Message) -> String {
+        match m {
+            Message::Any(s) => s,
+            Message::Some(km) => self.render_message(km),
+        }
+    }
+}
+
+impl MessageRenderer for () {
 }
 
 pub enum CheckerOption {
@@ -196,13 +427,10 @@ impl<T: FieldType> Checkable for Checker<T> {
 
         if values.is_none() {
             if !self.optional {
-                return Err(Message {
-                    key: MessageKey::Blank,
-                    values: {
-                        let mut v = HashMap::new();
-                        v.insert("name".to_string(), self.field_title.clone());
-                        v
-                    }});
+                return Err(Message::some(MessageKind::Blank,
+                                        &self.field_name,
+                                        &self.field_title,
+                                        None, Vec::new()));
             }
 
             return Ok(None)
@@ -222,13 +450,10 @@ impl<T: FieldType> Checkable for Checker<T> {
         } else {
             if values.len() < 1 {
                 if !self.optional {
-                    return Err(Message {
-                        key: MessageKey::Blank,
-                        values: {
-                            let mut v = HashMap::new();
-                            v.insert("name".to_string(), self.field_title.clone());
-                            v
-                        }});
+                    return Err(Message::some(MessageKind::Blank,
+                                            &self.field_name,
+                                            &self.field_title,
+                                            None, Vec::new()));
                 }
 
                 return Ok(None)
@@ -263,9 +488,9 @@ impl<T: FieldType> Checker<T> {
     }
 
     fn check_value(&self, value: &str) -> Result<FieldValue, Message> {
-        let field_value = try!(self.field_type.from_str(&self.field_title, value));
+        let field_value = try!(self.field_type.from_str(&self.field_name, &self.field_title, value));
         for rule in &self.rules {
-            if let Err(msg) = field_value.match_rule(&self.field_title, value, rule) {
+            if let Err(msg) = field_value.match_rule(&self.field_name, &self.field_title, value, rule) {
                 return Err(msg);
             }
         }
@@ -295,11 +520,11 @@ pub enum Rule {
     Max(i64),
     Min(i64),
     Format(&'static str),
-    Lambda(Box<Fn(FieldValue) -> bool>, Option<Box<Fn(&str, &str) -> String>>)
+    Lambda(Box<Fn(FieldValue) -> bool>, Option<Box<Fn(&str, &str, &str) -> String>>)
 }
 
 pub trait FieldType {
-    fn from_str(&self, field_title: &str, value: &str) -> Result<FieldValue, Message>;
+    fn from_str(&self, field_name: &str, field_title: &str, value: &str) -> Result<FieldValue, Message>;
 }
 
 #[derive(Clone)]
@@ -332,37 +557,29 @@ impl FieldValue {
         }
     }
 
-    fn match_rule(&self, field_title: &str, raw: &str, rule: &Rule) -> Result<(), Message> {
+    fn match_rule(&self, field_name: &str, field_title: &str, value: &str, rule: &Rule) -> Result<(), Message> {
         match *rule {
             Rule::Lambda(ref f, ref err_handler) => {
                 if !f(self.clone()) {
                     match *err_handler {
                         Some(ref handler) => {
-                            return Err(Message {
-                                key: MessageKey::Custom,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("value".to_string(), handler(field_title, raw));
-                                    v
-                                }
-                            })
+                            return Err(Message::any(&handler(field_name,
+                                                            field_title,
+                                                            value)));
                         },
                         None => {
-                            return Err(Message {
-                                key: MessageKey::Format,
-                                values: {
-                                    let mut v = HashMap::new();
-                                    v.insert("name".to_string(), field_title.to_string());
-                                    v
-                                }
-                            })
+                            return Err(Message::some(MessageKind::Format,
+                                                    field_name,
+                                                    field_title,
+                                                    Some(value.to_string()),
+                                                    Vec::new()));
                         },
                     }
                 }
             },
-            Rule::Max(max) => try!(match_max(max, self, field_title, raw)),
-            Rule::Min(min) => try!(match_min(min, self, field_title, raw)),
-            Rule::Format(format) => try!(match_format(format, self, field_title, raw)),
+            Rule::Max(max) => try!(match_max(max, self, field_name, field_title, value)),
+            Rule::Min(min) => try!(match_min(min, self, field_name, field_title, value)),
+            Rule::Format(format) => try!(match_format(format, self, field_name, field_title, value)),
         }
 
     Ok(())
@@ -370,81 +587,62 @@ impl FieldValue {
     }
 }
 
-fn match_max(max: i64, value: &FieldValue, field_title: &str, _: &str) -> Result<(), Message> {
+fn match_max(max: i64, value: &FieldValue, field_name: &str, field_title: &str, raw: &str) -> Result<(), Message> {
     match *value {
         FieldValue::Str(ref s) => {
             if s.len() > max as usize {
-                return Err(Message {
-                    key: MessageKey::MaxLen,
-                    values: {
-                        let mut v = HashMap::new();
-                        v.insert("name".to_string(), field_title.to_string());
-                        v.insert("value".to_string(), max.to_string());
-                        v
-                    }
-                })
+                return Err(Message::some(MessageKind::MaxLen,
+                                        field_name,
+                                        field_title,
+                                        Some(raw.to_string()),
+                                        vec![max.to_string()]));
             }
         },
         FieldValue::I64(i) => {
             if i > max {
-                return Err(Message {
-                    key: MessageKey::Max,
-                    values: {
-                        let mut v = HashMap::new();
-                        v.insert("name".to_string(), field_title.to_string());
-                        v.insert("value".to_string(), max.to_string());
-                        v
-                    }
-                })
+                return Err(Message::some(MessageKind::Max,
+                                        field_name,
+                                        field_title,
+                                        Some(raw.to_string()),
+                                        vec![max.to_string()]));
             }
         },
     }
     Ok(())
 }
 
-fn match_min(min: i64, value: &FieldValue, field_title: &str, _: &str) -> Result<(), Message> {
+fn match_min(min: i64, value: &FieldValue, field_name: &str, field_title: &str, raw: &str) -> Result<(), Message> {
     match *value {
         FieldValue::Str(ref s) => {
             if s.len() < min as usize {
-                return Err(Message {
-                    key: MessageKey::MinLen,
-                    values: {
-                        let mut v = HashMap::new();
-                        v.insert("name".to_string(), field_title.to_string());
-                        v.insert("value".to_string(), min.to_string());
-                        v
-                    }
-                })
+                return Err(Message::some(MessageKind::MinLen,
+                                        field_name,
+                                        field_title,
+                                        Some(raw.to_string()),
+                                        vec![min.to_string()]));
             }
         },
         FieldValue::I64(i) => {
             if i < min {
-                return Err(Message {
-                    key: MessageKey::Min,
-                    values: {
-                        let mut v = HashMap::new();
-                        v.insert("name".to_string(), field_title.to_string());
-                        v.insert("value".to_string(), min.to_string());
-                        v
-                    }
-                })
+                return Err(Message::some(MessageKind::Min,
+                                        field_name,
+                                        field_title,
+                                        Some(raw.to_string()),
+                                        vec![min.to_string()]));
             }
         },
     }
     Ok(())
 }
 
-fn match_format(format: &str, value: &FieldValue, field_title: &str, _: &str) -> Result<(), Message> {
+fn match_format(format: &str, value: &FieldValue, field_name: &str, field_title: &str, raw: &str) -> Result<(), Message> {
     let re = Regex::new(format).unwrap();
     if !re.is_match(&value.to_string()) {
-        return Err(Message {
-            key: MessageKey::Format,
-            values: {
-                let mut v = HashMap::new();
-                v.insert("name".to_string(), field_title.to_string());
-                v
-            }
-        })
+        return Err(Message::some(MessageKind::Format,
+                                field_name,
+                                field_title,
+                                Some(raw.to_string()),
+                                Vec::new()));
     }
     Ok(())
 }
@@ -452,7 +650,7 @@ fn match_format(format: &str, value: &FieldValue, field_title: &str, _: &str) ->
 pub struct Str;
 
 impl FieldType for Str {
-    fn from_str(&self, _: &str, value: &str) -> Result<FieldValue, Message> {
+    fn from_str(&self, _: &str, _: &str, value: &str) -> Result<FieldValue, Message> {
         Ok(FieldValue::Str(value.to_string()))
     }
 }
@@ -460,17 +658,14 @@ impl FieldType for Str {
 pub struct I64;
 
 impl FieldType for I64 {
-    fn from_str(&self, field_title: &str, value: &str) -> Result<FieldValue, Message> {
+    fn from_str(&self, field_name: &str, field_title: &str, value: &str) -> Result<FieldValue, Message> {
         match value.to_string().parse::<i64>() {
             Ok(i) => Ok(FieldValue::I64(i)),
-            Err(_) => Err(Message {
-                key: MessageKey::Format,
-                values: {
-                    let mut v = HashMap::new();
-                    v.insert("name".to_string(), field_title.to_string());
-                    v
-                }
-            }),
+            Err(_) => Err(Message::some(MessageKind::Format,
+                                    field_name,
+                                    field_title,
+                                    Some(value.to_string()),
+                                    Vec::new())),
         }
     }
 }
@@ -478,17 +673,14 @@ impl FieldType for I64 {
 pub struct ChinaMobile;
 
 impl FieldType for ChinaMobile {
-    fn from_str(&self, field_title: &str, value: &str) -> Result<FieldValue, Message> {
+    fn from_str(&self, field_name: &str, field_title: &str, value: &str) -> Result<FieldValue, Message> {
         let re = Regex::new(r"^1\d{10}$").unwrap();
         if !re.is_match(value) {
-            return Err(Message {
-                key: MessageKey::Format,
-                values: {
-                    let mut v = HashMap::new();
-                    v.insert("name".to_string(), field_title.to_string());
-                    v
-                }
-            })
+            return Err(Message::some(MessageKind::Format,
+                                    field_name,
+                                    field_title,
+                                    Some(value.to_string()),
+                                    Vec::new()));
         }
         Ok(FieldValue::Str(value.to_string()))
     }
@@ -497,17 +689,14 @@ impl FieldType for ChinaMobile {
 pub struct Email;
 
 impl FieldType for Email {
-    fn from_str(&self, field_title: &str, value: &str) -> Result<FieldValue, Message> {
+    fn from_str(&self, field_name: &str, field_title: &str, value: &str) -> Result<FieldValue, Message> {
         let re = Regex::new(r"(?i)^[\w.%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]{2,4}$").unwrap();
         if !re.is_match(value) {
-            return Err(Message {
-                key: MessageKey::Format,
-                values: {
-                    let mut v = HashMap::new();
-                    v.insert("name".to_string(), field_title.to_string());
-                    v
-                }
-            })
+            return Err(Message::some(MessageKind::Format,
+                                    field_name,
+                                    field_title,
+                                    Some(value.to_string()),
+                                    Vec::new()));
         }
         Ok(FieldValue::Str(value.to_string()))
     }

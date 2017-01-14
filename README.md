@@ -2,6 +2,11 @@
 
 A library for Web developers to check the values from a submitted form or a query string. 
 
+```toml
+# Cargo.toml
+[dependencies]
+form-checker = "0.2"
+```
 ## example
 
 ```rust
@@ -36,3 +41,5 @@ fn main() {
     assert_eq!(validator.get_required("age").as_i64().unwrap(), 20);
 }
 ```
+
+## [full documentation]()

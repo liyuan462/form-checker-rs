@@ -1,9 +1,15 @@
 [package]
 name = "form-checker"
-description = "A library for Web developers to check the values from a submitted form or a query string."
-repository = "https://github.com/liyuan462/form-checker-rs"
 version = "0.2.0"
 authors = ["liyuan <liyuan462@gmail.com>"]
+repository = "https://github.com/liyuan462/form-checker-rs"
+homepage = "https://github.com/liyuan462/form-checker-rs"
+license = "MIT"
+readme = "README.md"
+description = """
+A library for Web developers to check the values from a submitted form or
+a query string.
+"""
 
 [dependencies]
 regex = "0.2.1"

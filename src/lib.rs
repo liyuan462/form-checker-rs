@@ -58,6 +58,7 @@ pub struct Validator<T: MessageRenderer=()> {
     pub message_renderer: T,
 }
 
+/// Represents a type to fed to the Validator.
 pub trait Checkable {
     fn check(&self, params: &HashMap<String, Vec<String>>) -> Result<Option<Vec<FieldValue>>, Message>;
     fn get_name(&self) -> String;
@@ -360,6 +361,7 @@ pub struct SomeMessage {
 }
 
 impl Message {
+    /// Construct a kind of message.
     pub fn some(kind: MessageKind, name: &str, title: &str, value: Option<String>, rule_values: Vec<String>) -> Message {
         Message::Some(SomeMessage {
             kind: kind,
@@ -370,12 +372,13 @@ impl Message {
         })
     }
 
+    /// Construct a customized message.
     pub fn any(message: &str) -> Message {
         Message::Any(message.to_string())
     }
 }
 
-/// If you want your own message format, implement this trait.
+/// If you want to control how the message is displayed, implement this trait.
 ///
 /// The default implementation is in simple Chinese.
 pub trait MessageRenderer {
@@ -407,11 +410,32 @@ impl<T:MessageRenderer> Renderable for T {
 impl MessageRenderer for () {
 }
 
+/// Option you can set to a checker.
+///
+/// # Examples
+///
+/// ```
+/// # use form_checker::{Validator, Checker, CheckerOption, Rule, Str};
+/// let mut params = std::collections::HashMap::new();
+/// params.insert("tags".to_string(), vec!["red".to_string(), "blue".to_string()]);
+///
+/// let mut validator = Validator::new();
+/// validator
+///     .check(Checker::new("tags", "标签", Str)
+///            .set(CheckerOption::Optional(true))
+///            .set(CheckerOption::Multiple(true))
+///            .meet(Rule::Min(1)));
+/// validator.validate(&params);
+/// assert!(validator.is_valid());
+/// ```
 pub enum CheckerOption {
+    /// True means this field is allowed to be missing, default false(required).
     Optional(bool),
+    /// True means this field consists of multiple values, default false(single value).
     Multiple(bool),
 }
 
+/// The checker for a field.
 pub struct Checker<T: FieldType> {
     field_name: String,
     field_title: String,
@@ -476,6 +500,13 @@ impl<T: FieldType> Checkable for Checker<T> {
 }
 
 impl<T: FieldType> Checker<T> {
+    /// Construct a new `Checker`.
+    ///
+    /// field_name is the field name in the form.
+    ///
+    /// field_title is a descriptive value, used to diplay error messages.
+    ///
+    /// field_type is a type implementing the `FieldType` trait.
     pub fn new(field_name: &str, field_title: &str, field_type: T) -> Checker<T> {
         Checker {
             field_name: field_name.to_string(),
@@ -497,11 +528,13 @@ impl<T: FieldType> Checker<T> {
         Ok(field_value)
     }
 
+    /// Add a rule to this checker, refer to the `Rule`.
     pub fn meet(mut self, rule: Rule) -> Checker<T> {
         self.rules.push(rule);
         self
     }
 
+    /// Set an option for this checker, refer to the `CheckerOption`.
     pub fn set(mut self, option: CheckerOption) -> Checker<T> {
         match option {
             CheckerOption::Optional(optional) => {
@@ -516,20 +549,47 @@ impl<T: FieldType> Checker<T> {
 
 }
 
+/// This enum offers rules avalable to be applied to a `FieldValue`.
+///
+/// Note that for diffent `FieldValue`, the same rule might mean diffent.
+/// For example, Max means the maximum length for str value, but means
+/// the maximum value for integer value.
 pub enum Rule {
+    /// Maximum limit.
     Max(i64),
+    /// Mininum limit.
     Min(i64),
+    /// A regex pattern to match against the str representation of `FieldValue`.
     Format(&'static str),
+    /// A customized lambda, to let you offer your own check logic.
     Lambda(Box<Fn(FieldValue) -> bool>, Option<Box<Fn(&str, &str, &str) -> String>>)
 }
 
+/// This trait represents the field type.
+///
+/// We offer some field types, like `Str`, `I64`, `ChinaMobile` and `Email`.
+///
+/// You just need to implement this trait to transform the raw str value into a 
+/// `FeildValue`.
+///
+/// field_name is the field name in the form.
+///
+/// field_title is a descriptive value, used to diplay invalid messages.
+///
+/// value is the raw str value from the form.
+///
+/// And of course you can implement your own field type!
 pub trait FieldType {
     fn from_str(&self, field_name: &str, field_title: &str, value: &str) -> Result<FieldValue, Message>;
 }
 
+/// An enum to represent the primitive value extracted, resulting from applying
+/// a checker.
 #[derive(Clone)]
 pub enum FieldValue {
+    /// A str value.
     Str(String),
+    /// An integer value as i64.
     I64(i64),
 }
 
@@ -543,6 +603,7 @@ impl fmt::Display for FieldValue {
 }
 
 impl FieldValue {
+    /// Extract a str primitive from the `FieldValue`.
     pub fn as_str(&self) -> Option<String> {
         match *self {
             FieldValue::Str(ref s) => Some(s.clone()),
@@ -550,6 +611,7 @@ impl FieldValue {
         }
     }
 
+    /// Extract an i64 primitive from the `FieldValue`
     pub fn as_i64(&self) -> Option<i64> {
         match *self {
             FieldValue::I64(i) => Some(i),
@@ -647,6 +709,7 @@ fn match_format(format: &str, value: &FieldValue, field_name: &str, field_title:
     Ok(())
 }
 
+/// A general field type to represent a string field.
 pub struct Str;
 
 impl FieldType for Str {
@@ -655,6 +718,7 @@ impl FieldType for Str {
     }
 }
 
+/// A general field type to represent an integer field.
 pub struct I64;
 
 impl FieldType for I64 {
@@ -670,6 +734,7 @@ impl FieldType for I64 {
     }
 }
 
+/// A field type to represent a mobile number used in China.
 pub struct ChinaMobile;
 
 impl FieldType for ChinaMobile {
@@ -686,6 +751,7 @@ impl FieldType for ChinaMobile {
     }
 }
 
+/// A field type to represent an Email.
 pub struct Email;
 
 impl FieldType for Email {

@@ -2,12 +2,15 @@
 
 A library for Web developers to check the values from a submitted form or a query string. 
 
+## Install
+
 ```toml
 # Cargo.toml
 [dependencies]
 form-checker = "0.2"
 ```
-## example
+
+## Example
 
 ```rust
 extern crate form_checker;
@@ -42,4 +45,10 @@ fn main() {
 }
 ```
 
-## [full documentation]()
+## [Full Documentation]()
+
+## License
+
+`form-checker-rs` is primarily distributed under the terms of the MIT license.
+
+See LICENSE-MIT for details.

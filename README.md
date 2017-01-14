@@ -45,7 +45,7 @@ fn main() {
 }
 ```
 
-## [Full Documentation](https://docs.rs/form-checker/0.2.0/form_checker/)
+## [Full Documentation](https://docs.rs/form-checker/0.2.1/form_checker/)
 
 ## License
 

@@ -288,7 +288,7 @@ impl<T: MessageRenderer> Validator<T> {
         self.valid_data.len() == self.checkers.len()
     }
 
-    /// Get an error message.
+    /// Get an error message by field name.
     ///
     /// # Panics
     ///
@@ -313,6 +313,55 @@ impl<T: MessageRenderer> Validator<T> {
     /// ```
     pub fn get_error(&self, name: &str) -> String {
         self.invalid_messages.get(name).unwrap().clone()
+    }
+
+    /// Get all error messages as a vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    /// params.insert("name".to_string(), vec!["b".to_string()]);
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(!validator.is_valid());
+    /// assert_eq!(validator.get_errors(), vec!["姓名长度不能小于2"]);
+    /// ```
+    pub fn get_errors(&self) -> Vec<String> {
+        self.invalid_messages.values().map(|e|e.clone()).collect()
+    }
+
+    /// Get an arbitrary error message.
+    ///
+    /// # Panics
+    ///
+    /// Make sure you know the validator is invalid before you get some
+    /// message, or it panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use form_checker::{Validator, Checker, Rule, Str};
+    /// let mut params = std::collections::HashMap::new();
+    /// params.insert("name".to_string(), vec!["b".to_string()]);
+    ///
+    /// let mut validator = Validator::new();
+    /// validator
+    ///     .check(Checker::new("name", "姓名", Str)
+    ///            .meet(Rule::Max(5))
+    ///            .meet(Rule::Min(2)));
+    /// validator.validate(&params);
+    /// assert!(!validator.is_valid());
+    /// assert_eq!(validator.get_some_error(), "姓名长度不能小于2");
+    /// ```
+    pub fn get_some_error(&self) -> String {
+        self.invalid_messages.values().next().unwrap().clone()
     }
 
     /// Clear the valid_data and invalid_messages, as if you have not called `validate`.

@@ -1,7 +1,7 @@
 extern crate form_checker;
 
 use std::collections::HashMap;
-use form_checker::{Validator, Checker, Rule, MessageRenderer, CheckerOption, Str, I64, ChinaMobile, Email, SomeMessage, MessageKind};
+use form_checker::{Validator, Checker, Rule, MessageRenderer, CheckerOption, Str, I64, ChinaMobile, Email, SomeMessage, MessageKind, Message, FieldValue, FieldType};
 
 #[test]
 fn check_str() {
@@ -327,4 +327,24 @@ fn multi_checkers() {
     params.insert("mobile".to_string(), vec!["13334567890".to_string()]);
     validator.validate(&params);
     assert!(validator.is_valid());
+}
+
+#[test]
+fn define_my_field_type() {
+    struct TestType;
+
+    impl FieldType for TestType {
+        fn from_str(&self, _: &str, _: &str, value: &str) -> Result<FieldValue, Message> {
+            Ok(FieldValue::Str(format!("my:{}", value)))
+        }
+    }
+
+    let mut validator = Validator::new();
+    validator.check(Checker::new("test", "test", TestType));
+
+    let mut params = HashMap::new();
+    params.insert("test".to_string(), vec!["test_field".to_string()]);
+    validator.validate(&params);
+    assert!(validator.is_valid());
+    assert_eq!(validator.get_required("test").as_str().unwrap(), "my:test_field".to_string());
 }
